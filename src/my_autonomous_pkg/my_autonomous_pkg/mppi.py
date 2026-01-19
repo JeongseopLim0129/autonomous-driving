@@ -1,15 +1,15 @@
 import numpy as np
 import math
 
-class NMPCController:
+class MPPIController:
     def __init__(self):
         # 1. 로봇 스펙 설정
-        self.max_v = 0.22   # 최대 전진 속도 (m/s)
+        self.max_v = 0.22   # 최대 전진 속도
         
-        # [중요] 최소 속도를 음수로 설정하여 로봇이 막혔을 때 스스로 후진할 수 있게 함
+        # 최소 속도를 음수로 설정하여 로봇이 막혔을 때 스스로 후진할 수 있게 함
         self.min_v = -0.15  
         
-        self.max_w = 1.5    # 최대 회전 속도 (rad/s)
+        self.max_w = 1.5    # 최대 회전 속도
         
         # 2. MPPI 알고리즘 파라미터
         self.horizon = 12       # 예측 구간: 미래 12스텝 앞을 내다봄
@@ -23,7 +23,7 @@ class NMPCController:
         
         # 4. 로봇 풋프린트
         # Waffle Pi의 실제 크기를 고려하여 직사각형 형태의 점 8개를 정의
-        # 중심(0,0)을 기준으로 로봇의 모서리와 변의 중점 좌표들 [x, y]
+        # 중심을 기준으로 로봇의 모서리와 변의 중점 좌표들 [x, y]
         self.footprint = np.array([
             [ 0.15,  0.15], [ 0.15, -0.15], # 앞쪽 좌/우 모서리
             [-0.15, -0.15], [-0.15,  0.15], # 뒤쪽 우/좌 모서리

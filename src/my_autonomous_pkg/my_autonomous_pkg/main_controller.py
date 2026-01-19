@@ -9,7 +9,7 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Path
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from my_autonomous_pkg.hybrid_a_star import HybridAStarPlanner
-from my_autonomous_pkg.nmpc import NMPCController
+from my_autonomous_pkg.mppi import MPPIController
 
 class MainController(Node):
     def __init__(self):
@@ -50,7 +50,7 @@ class MainController(Node):
 
         # 경로 계획기 및 제어기 객체 생성
         self.planner = HybridAStarPlanner() # 전역 경로 생성기 (Hybrid A*)
-        self.controller = NMPCController()  # 지역 경로 추종기 (NMPC)
+        self.controller = MPPIController()  # 지역 경로 추종기 (MPPI)
 
         # 타이머 설정
         self.create_timer(0.05, self.control_loop) # 0.05초(20Hz)마다 제어 루프 실행
@@ -246,7 +246,7 @@ class MainController(Node):
         while yaw_diff > math.pi: yaw_diff -= 2*math.pi
         while yaw_diff < -math.pi: yaw_diff += 2*math.pi
         
-        # 3. 회전 방향 결정 및 고정 (Lock)
+        # 3. 회전 방향 결정 및 고정
         self.locked_turn_dir = 1.0 if yaw_diff > 0 else -1.0
         
         self.recovery_state = 'TURNING'
@@ -302,8 +302,8 @@ class MainController(Node):
         # 1. 후진 모드 실행 중일 때
         if self.recovery_state == 'BACKING':
             # [탈출 조건] - 언제 후진을 멈출 것인가?
-            # A. 경로가 내 앞쪽 60도(1.0 rad) 안으로 들어왔는가? (각도 확보 완료)
-            # B. 또는 앞 공간이 충분히 넓어져서(60cm) NMPC가 움직일 공간이 생겼는가?
+            # A. 경로가 내 앞쪽 60도 안으로 들어왔는가? (각도 확보 완료)
+            # B. 또는 앞 공간이 충분히 넓어져서(60cm) MPPI가 움직일 공간이 생겼는가?
             # C. 뒤가 막혔거나(20cm), 후진 시간이 너무 길어졌는가(3초)?
             
             cond_aimed = abs(yaw_diff) < 1.0  # 각도 확보 여부
@@ -313,11 +313,11 @@ class MainController(Node):
             
             # 탈출 조건 중 하나라도 만족하면 IDLE로 복귀
             if cond_aimed or cond_space or cond_blocked or cond_timeout:
-                self.get_logger().info(f"후진 종료 (조준됨:{cond_aimed}, 공간:{cond_space}) -> NMPC 복귀")
+                self.get_logger().info(f"후진 종료 (조준됨:{cond_aimed}, 공간:{cond_space}) -> MPPI 복귀")
                 self.recovery_state = 'IDLE'
-                self.controller.reset() # NMPC 리셋
+                self.controller.reset() # MPPI 리셋
                 
-                # 복귀 직후 NMPC가 바로 멈추거나 버벅대지 않게 살짝 전진 명령 부여
+                # 복귀 직후 MPPI가 바로 멈추거나 버벅대지 않게 살짝 전진 명령 부여
                 cmd = Twist()
                 cmd.linear.x = 0.05
                 self.cmd_pub.publish(cmd)
@@ -334,12 +334,12 @@ class MainController(Node):
                 cmd.angular.z = -0.5 * np.sign(yaw_diff) 
                 
                 self.cmd_pub.publish(cmd)
-            return # 후진 중에는 아래 NMPC 실행 안 함
+            return # 후진 중에는 아래 MPPI 실행 안 함
 
-        # 2. 평상시 (IDLE) - 상황 감시 및 NMPC 주행
+        # 2. 평상시 (IDLE) - 상황 감시 및 MPPI 주행
         if self.recovery_state == 'IDLE':
             # 진입 조건 체크: 앞이 막혔고(30cm) + 경로 각도가 너무 큼(60도 이상)
-            # 좁은 곳에서 각도가 안 맞으면 NMPC가 힘들어하므로 미리 후진 모드로 전환
+            # 좁은 곳에서 각도가 안 맞으면 MPPI가 힘들어하므로 미리 후진 모드로 전환
             is_stuck = (min_front_dist < 0.30) and (abs(yaw_diff) > 1.0)
             is_emergency = min_front_dist < 0.15 # 너무 가까우면 비상
             
@@ -351,14 +351,14 @@ class MainController(Node):
                     self.recovery_start_time = time.time()
                     return
                 else:
-                    # 뒤도 막혔으면(오도가도 못함) 여기서는 별도 처리 없이 NMPC에 맡기거나 정지
+                    # 뒤도 막혔으면(오도가도 못함) 여기서는 별도 처리 없이 MPPI에 맡기거나 정지
                     pass 
 
-            # NMPC 실행 (경로 추종 제어)
+            # MPPI 실행 (경로 추종 제어)
             path_seg = self.get_path_segment() # 전방 경로 조각 가져오기
             obs = self.scan_data if len(self.scan_data)>0 else np.array([]) # 장애물 데이터
             
-            # NMPC 컨트롤러로 최적의 속도(v)와 회전각속도(w) 계산
+            # MPPI 컨트롤러로 최적의 속도(v)와 회전각속도(w) 계산
             v, w = self.controller.compute_control(self.robot_pose, path_seg, obs)
             
             # 계산된 제어 입력 발행
